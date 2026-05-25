@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom 3D Physics Cube</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:black;
+    touch-action:none;
+}
+
+canvas{
+    display:block;
+    touch-action:none;
+}
+
+#info{
+    position:absolute;
+    top:10px;
+    left:10px;
+    color:white;
+    font-family:Arial;
+    background:rgba(0,0,0,0.5);
+    padding:10px;
+    border-radius:10px;
+    user-select:none;
+    z-index:10;
+}
+
+.controls{
+    position:absolute;
+    bottom:20px;
+    left:20px;
+    z-index:20;
+}
+
+.btn{
+    width:70px;
+    height:70px;
+    border-radius:20px;
+    border:none;
+    margin:5px;
+    font-size:24px;
+    background:#00ffff33;
+    color:white;
+    backdrop-filter:blur(5px);
+}
+
+.jump{
+    position:absolute;
+    right:20px;
+    bottom:40px;
+}
+</style>
+</head>
+<body>
+
+<div id="info">
+Physics + collisions + controls<br>
+WASD or touch buttons
+</div>
+
+<div class="controls">
+    <div>
+        <button class="btn" id="up">▲</button>
+    </div>
+    <div>
+        <button class="btn" id="left">◀</button>
+        <button class="btn" id="down">▼</button>
+        <button class="btn" id="right">▶</button>
+    </div>
+</div>
+
+<button class="btn jump" id="jump">⬆</button>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize", resize);
+
+const camera = {
+    z:-10,
+    fov:700
+};
+
+const cube = {
+    x:0,
+    y:3,
+    z:0,
+
+    vx:0,
+    vy:0,
+    vz:0,
+
+    rx:0,
+    ry:0,
+    rz:0,
+
+    rvx:0,
+    rvy:0,
+    rvz:0,
+
+    size:2
+};
+
+const gravity = 0.03;
+const friction = 0.97;
+const bounce = 0.35;
+
+const floorY = -4;
+
+const walls = [
+    {x:-6,y:-2,z:0,w:1,h:4,d:12},
+    {x:6,y:-2,z:0,w:1,h:4,d:12},
+    {x:0,y:-2,z:-6,w:12,h:4,d:1},
+    {x:0,y:-2,z:6,w:12,h:4,d:1},
+
+    {x:0,y:-3,z:0,w:2,h:2,d:2},
+    {x:3,y:-3,z:2,w:2,h:2,d:2},
+    {x:-3,y:-3,z:-2,w:2,h:2,d:2}
+];
+
+const keys = {};
+
+document.addEventListener("keydown",(e)=>{
+    keys[e.key.toLowerCase()] = true;
+});
+
+document.addEventListener("keyup",(e)=>{
+    keys[e.key.toLowerCase()] = false;
+});
+
+function bindButton(id,key){
+    const btn = document.getElementById(id);
+
+    btn.addEventListener("touchstart",()=>{
+        keys[key]=true;
+    });
+
+    btn.addEventListener("touchend",()=>{
+        keys[key]=false;
+    });
+
+    btn.addEventListener("mousedown",()=>{
+        keys[key]=true;
+    });
+
+    btn.addEventListener("mouseup",()=>{
+        keys[key]=false;
+    });
+}
+
+bindButton("up","w");
+bindButton("down","s");
+bindButton("left","a");
+bindButton("right","d");
+
+document.getElementById("jump").addEventListener("touchstart",jump);
+document.getElementById("jump").addEventListener("mousedown",jump);
+
+function jump(){
+    if(cube.y - cube.size/2 <= floorY + 0.05){
+        cube.vy = 0.7;
+        cube.rvx += 0.2;
+        cube.rvz += 0.2;
+    }
+}
+
+const vertices = [
+[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
+];
+
+const edges = [
+[0,1],[1,2],[2,3],[3,0],
+[4,5],[5,6],[6,7],[7,4],
+[0,4],[1,5],[2,6],[3,7]
+];
+
+function rotateX(p,a){
+    const s=Math.sin(a);
+    const c=Math.cos(a);
+
+    return {
+        x:p.x,
+        y:p.y*c-p.z*s,
+        z:p.y*s+p.z*c
+    };
+}
+
+function rotateY(p,a){
+    const s=Math.sin(a);
+    const c=Math.cos(a);
+
+    return {
+        x:p.x*c+p.z*s,
+        y:p.y,
+        z:-p.x*s+p.z*c
+    };
+}
+
+function rotateZ(p,a){
+    const s=Math.sin(a);
+    const c=Math.cos(a);
+
+    return {
+        x:p.x*c-p.y*s,
+        y:p.x*s+p.y*c,
+        z:p.z
+    };
+}
+
+function project(p){
+
+    const z = p.z - camera.z;
+
+    const scale = camera.fov / z;
+
+    return {
+        x:p.x*scale + canvas.width/2,
+        y:-p.y*scale + canvas.height/2
+    };
+}
+
+function collideBox(a,b){
+
+    return (
+        a.x-a.s/2 < b.x+b.w/2 &&
+        a.x+a.s/2 > b.x-b.w/2 &&
+        a.y-a.s/2 < b.y+b.h/2 &&
+        a.y+a.s/2 > b.y-b.h/2 &&
+        a.z-a.s/2 < b.z+b.d/2 &&
+        a.z+a.s/2 > b.z-b.d/2
+    );
+}
+
+function physics(){
+
+    const speed = 0.03;
+
+    if(keys["w"]) cube.vz -= speed;
+    if(keys["s"]) cube.vz += speed;
+    if(keys["a"]) cube.vx -= speed;
+    if(keys["d"]) cube.vx += speed;
+
+    cube.vy -= gravity;
+
+    cube.x += cube.vx;
+    cube.y += cube.vy;
+    cube.z += cube.vz;
+
+    cube.rx += cube.rvx;
+    cube.ry += cube.rvy;
+    cube.rz += cube.rvz;
+
+    cube.vx *= friction;
+    cube.vz *= friction;
+
+    cube.rvx *= 0.99;
+    cube.rvy *= 0.99;
+    cube.rvz *= 0.99;
+
+    if(cube.y - cube.size/2 < floorY){
+
+        cube.y = floorY + cube.size/2;
+
+        cube.vy *= -bounce;
+
+        cube.rvx += cube.vz * 0.05;
+        cube.rvz += cube.vx * 0.05;
+
+        if(Math.abs(cube.vy) < 0.05){
+            cube.vy = 0;
+        }
+    }
+
+    for(let w of walls){
+
+        if(collideBox(
+            {
+                x:cube.x,
+                y:cube.y,
+                z:cube.z,
+                s:cube.size
+            },
+            w
+        )){
+
+            const dx = cube.x - w.x;
+            const dz = cube.z - w.z;
+
+            if(Math.abs(dx) > Math.abs(dz)){
+
+                cube.vx *= -0.6;
+
+                if(dx > 0){
+                    cube.x = w.x + w.w/2 + cube.size/2;
+                }else{
+                    cube.x = w.x - w.w/2 - cube.size/2;
+                }
+
+                cube.rvy += cube.vx * 0.2;
+
+            }else{
+
+                cube.vz *= -0.6;
+
+                if(dz > 0){
+                    cube.z = w.z + w.d/2 + cube.size/2;
+                }else{
+                    cube.z = w.z - w.d/2 - cube.size/2;
+                }
+
+                cube.rvx += cube.vz * 0.2;
+            }
+        }
+    }
+}
+
+function drawCube3D(x,y,z,w,h,d,color){
+
+    const verts = [
+        [-w/2,-h/2,-d/2],
+        [ w/2,-h/2,-d/2],
+        [ w/2, h/2,-d/2],
+        [-w/2, h/2,-d/2],
+
+        [-w/2,-h/2, d/2],
+        [ w/2,-h/2, d/2],
+        [ w/2, h/2, d/2],
+        [-w/2, h/2, d/2]
+    ];
+
+    const pts = [];
+
+    for(let v of verts){
+
+        pts.push(project({
+            x:v[0]+x,
+            y:v[1]+y,
+            z:v[2]+z
+        }));
+    }
+
+    ctx.strokeStyle = color;
+
+    for(let e of edges){
+
+        const a = pts[e[0]];
+        const b = pts[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function render(){
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.strokeStyle = "#222";
+
+    for(let x=-20;x<=20;x+=2){
+
+        const a = project({x,y:floorY,z:-20});
+        const b = project({x,y:floorY,z:20});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let z=-20;z<=20;z+=2){
+
+        const a = project({x:-20,y:floorY,z});
+        const b = project({x:20,y:floorY,z});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let w of walls){
+        drawCube3D(w.x,w.y,w.z,w.w,w.h,w.d,"#444");
+    }
+
+    const points = [];
+
+    for(let v of vertices){
+
+        let p = {
+            x:v[0]*cube.size/2,
+            y:v[1]*cube.size/2,
+            z:v[2]*cube.size/2
+        };
+
+        p = rotateX(p,cube.rx);
+        p = rotateY(p,cube.ry);
+        p = rotateZ(p,cube.rz);
+
+        p.x += cube.x;
+        p.y += cube.y;
+        p.z += cube.z;
+
+        points.push(project(p));
+    }
+
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+
+    for(let e of edges){
+
+        const a = points[e[0]];
+        const b = points[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function loop(){
+
+    physics();
+    render();
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+      </html>
