@@ -1,2 +1,90 @@
-# TRYING-TO-MAKE-GAME-USING-CHATGPT
-This will have the progression from the start to the end in a list from one to what every number I get to.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Page List</title>
+
+<style>
+    body{
+        background:#111;
+        color:white;
+        font-family:Arial;
+        padding:20px;
+    }
+
+    #list{
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        margin-bottom:20px;
+    }
+
+    a{
+        color:cyan;
+        text-decoration:none;
+        font-size:18px;
+    }
+
+    a:hover{
+        text-decoration:underline;
+    }
+
+    button{
+        padding:10px 20px;
+        margin-right:10px;
+        font-size:16px;
+        cursor:pointer;
+    }
+</style>
+</head>
+<body>
+
+<div id="list"></div>
+
+<button onclick="previousPage()">Previous 10</button>
+<button onclick="nextPage()">Next 10</button>
+
+<script>
+const list = document.getElementById("list");
+
+let start = 1;
+const amount = 10;
+
+function renderLinks() {
+    list.innerHTML = "";
+
+    for(let i = start; i < start + amount; i++) {
+
+        const link = document.createElement("a");
+
+        link.href =
+        "https://lilalien45.github.io/TRYING-TO-MAKE-GAME-USING-CHATGPT/PAGE" + i + ".html";
+
+        link.textContent = "PAGE" + i + ".html";
+
+        link.target = "_blank";
+
+        list.appendChild(link);
+    }
+}
+
+function nextPage() {
+    start += amount;
+    renderLinks();
+}
+
+function previousPage() {
+
+    if(start - amount >= 1){
+        start -= amount;
+    }
+
+    renderLinks();
+}
+
+renderLinks();
+</script>
+
+</body>
+</html>
