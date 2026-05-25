@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom 3D Physics Cube</title>
+
+<style>
+    body{
+        margin:0;
+        overflow:hidden;
+        background:black;
+        touch-action:none;
+    }
+
+    canvas{
+        display:block;
+        touch-action:none;
+    }
+
+    #info{
+        position:absolute;
+        top:10px;
+        left:10px;
+        color:white;
+        font-family:Arial;
+        background:rgba(0,0,0,0.5);
+        padding:10px;
+        border-radius:8px;
+        user-select:none;
+    }
+</style>
+</head>
+<body>
+
+<div id="info">
+Desktop + Mobile Dragging<br>
+Pure custom 3D + physics
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+}
+resize();
+
+addEventListener("resize", resize);
+
+const camera = {
+    z:-8,
+    fov:700
+};
+
+const cube = {
+    x:0,
+    y:0,
+    z:0,
+
+    vx:0,
+    vy:0,
+    vz:0,
+
+    rx:0,
+    ry:0,
+    rz:0,
+
+    rvx:0.01,
+    rvy:0.015,
+    rvz:0.005,
+
+    size:2
+};
+
+const gravity = 0.02;
+const floorY = -3;
+
+let dragging = false;
+
+const vertices = [
+    [-1,-1,-1],
+    [ 1,-1,-1],
+    [ 1, 1,-1],
+    [-1, 1,-1],
+
+    [-1,-1, 1],
+    [ 1,-1, 1],
+    [ 1, 1, 1],
+    [-1, 1, 1]
+];
+
+const edges = [
+    [0,1],[1,2],[2,3],[3,0],
+    [4,5],[5,6],[6,7],[7,4],
+    [0,4],[1,5],[2,6],[3,7]
+];
+
+function rotateX(p,a){
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x,
+        y:p.y*c - p.z*s,
+        z:p.y*s + p.z*c
+    };
+}
+
+function rotateY(p,a){
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c + p.z*s,
+        y:p.y,
+        z:-p.x*s + p.z*c
+    };
+}
+
+function rotateZ(p,a){
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c - p.y*s,
+        y:p.x*s + p.y*c,
+        z:p.z
+    };
+}
+
+function project(p){
+
+    const z = p.z - camera.z;
+
+    const scale = camera.fov / z;
+
+    return {
+        x:p.x * scale + canvas.width/2,
+        y:-p.y * scale + canvas.height/2
+    };
+}
+
+function physics(){
+
+    if(!dragging){
+
+        cube.vy -= gravity;
+
+        cube.x += cube.vx;
+        cube.y += cube.vy;
+        cube.z += cube.vz;
+
+        cube.rx += cube.rvx;
+        cube.ry += cube.rvy;
+        cube.rz += cube.rvz;
+
+        if(cube.y - cube.size/2 < floorY){
+
+            cube.y = floorY + cube.size/2;
+
+            cube.vy *= -0.7;
+
+            cube.vx *= 0.98;
+            cube.vz *= 0.98;
+
+            cube.rvx *= 0.99;
+            cube.rvy *= 0.99;
+            cube.rvz *= 0.99;
+
+            if(Math.abs(cube.vy) < 0.01){
+                cube.vy = 0;
+            }
+        }
+    }
+}
+
+function drawFloor(){
+
+    ctx.strokeStyle = "#222";
+
+    for(let z=-20; z<=20; z+=2){
+
+        let a = project({x:-20,y:floorY,z:z});
+        let b = project({x:20,y:floorY,z:z});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let x=-20; x<=20; x+=2){
+
+        let a = project({x:x,y:floorY,z:-20});
+        let b = project({x:x,y:floorY,z:20});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function drawCube(){
+
+    const points = [];
+
+    for(let v of vertices){
+
+        let p = {
+            x:v[0] * cube.size/2,
+            y:v[1] * cube.size/2,
+            z:v[2] * cube.size/2
+        };
+
+        p = rotateX(p,cube.rx);
+        p = rotateY(p,cube.ry);
+        p = rotateZ(p,cube.rz);
+
+        p.x += cube.x;
+        p.y += cube.y;
+        p.z += cube.z;
+
+        points.push(project(p));
+    }
+
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+
+    for(let e of edges){
+
+        const a = points[e[0]];
+        const b = points[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function render(){
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    drawFloor();
+    drawCube();
+}
+
+function loop(){
+
+    physics();
+    render();
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+
+function dragCube(clientX, clientY){
+
+    const mx = clientX - canvas.width/2;
+    const my = clientY - canvas.height/2;
+
+    cube.x = mx / 100;
+    cube.y = -my / 100;
+
+    cube.vx = 0;
+    cube.vy = 0;
+    cube.vz = 0;
+}
+
+canvas.addEventListener("mousedown",(e)=>{
+
+    dragging = true;
+    dragCube(e.clientX, e.clientY);
+});
+
+addEventListener("mousemove",(e)=>{
+
+    if(dragging){
+        dragCube(e.clientX, e.clientY);
+    }
+});
+
+addEventListener("mouseup",()=>{
+
+    dragging = false;
+});
+
+canvas.addEventListener("touchstart",(e)=>{
+
+    dragging = true;
+
+    const t = e.touches[0];
+
+    dragCube(t.clientX, t.clientY);
+
+    e.preventDefault();
+},{passive:false});
+
+canvas.addEventListener("touchmove",(e)=>{
+
+    if(!dragging) return;
+
+    const t = e.touches[0];
+
+    dragCube(t.clientX, t.clientY);
+
+    e.preventDefault();
+},{passive:false});
+
+canvas.addEventListener("touchend",()=>{
+
+    dragging = false;
+});
+</script>
+
+</body>
+</html>
