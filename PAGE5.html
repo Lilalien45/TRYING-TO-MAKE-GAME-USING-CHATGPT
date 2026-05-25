@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Momentum Physics Cube</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:black;
+    touch-action:none;
+}
+
+canvas{
+    display:block;
+    touch-action:none;
+}
+
+#info{
+    position:absolute;
+    top:10px;
+    left:10px;
+    color:white;
+    font-family:Arial;
+    background:rgba(0,0,0,0.5);
+    padding:10px;
+    border-radius:10px;
+    z-index:10;
+}
+
+.controls{
+    position:absolute;
+    bottom:20px;
+    left:20px;
+    z-index:20;
+}
+
+.btn{
+    width:70px;
+    height:70px;
+    border:none;
+    border-radius:20px;
+    margin:5px;
+    font-size:24px;
+    color:white;
+    background:#00ffff22;
+    backdrop-filter:blur(5px);
+}
+
+.jump{
+    position:absolute;
+    right:20px;
+    bottom:40px;
+}
+</style>
+</head>
+<body>
+
+<div id="info">
+Momentum preservation enabled<br>
+Cube keeps rotational + movement energy
+</div>
+
+<div class="controls">
+    <div>
+        <button class="btn" id="up">▲</button>
+    </div>
+
+    <div>
+        <button class="btn" id="left">◀</button>
+        <button class="btn" id="down">▼</button>
+        <button class="btn" id="right">▶</button>
+    </div>
+</div>
+
+<button class="btn jump" id="jump">⬆</button>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize", resize);
+
+const camera = {
+    z:-12,
+    fov:700
+};
+
+const cube = {
+    x:0,
+    y:4,
+    z:0,
+
+    vx:0,
+    vy:0,
+    vz:0,
+
+    rx:0,
+    ry:0,
+    rz:0,
+
+    rvx:0,
+    rvy:0,
+    rvz:0,
+
+    size:2,
+    mass:1
+};
+
+const gravity = 0.03;
+const floorY = -4;
+
+const airResistance = 0.999;
+const angularResistance = 0.999;
+
+const bounceLoss = 0.92;
+
+const walls = [
+    {x:-7,y:-2,z:0,w:1,h:4,d:14},
+    {x:7,y:-2,z:0,w:1,h:4,d:14},
+
+    {x:0,y:-2,z:-7,w:14,h:4,d:1},
+    {x:0,y:-2,z:7,w:14,h:4,d:1},
+
+    {x:0,y:-3,z:0,w:3,h:2,d:3},
+    {x:4,y:-3,z:2,w:2,h:2,d:2},
+    {x:-4,y:-3,z:-2,w:2,h:2,d:2}
+];
+
+const keys = {};
+
+document.addEventListener("keydown",(e)=>{
+    keys[e.key.toLowerCase()] = true;
+});
+
+document.addEventListener("keyup",(e)=>{
+    keys[e.key.toLowerCase()] = false;
+});
+
+function bind(id,key){
+
+    const b = document.getElementById(id);
+
+    b.addEventListener("touchstart",()=>{
+        keys[key]=true;
+    });
+
+    b.addEventListener("touchend",()=>{
+        keys[key]=false;
+    });
+
+    b.addEventListener("mousedown",()=>{
+        keys[key]=true;
+    });
+
+    b.addEventListener("mouseup",()=>{
+        keys[key]=false;
+    });
+}
+
+bind("up","w");
+bind("down","s");
+bind("left","a");
+bind("right","d");
+
+document.getElementById("jump").addEventListener("mousedown",jump);
+document.getElementById("jump").addEventListener("touchstart",jump);
+
+function jump(){
+
+    if(cube.y - cube.size/2 <= floorY + 0.05){
+
+        cube.vy += 0.9;
+
+        cube.rvx += cube.vz * 0.15;
+        cube.rvz += cube.vx * 0.15;
+    }
+}
+
+const vertices = [
+[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
+];
+
+const edges = [
+[0,1],[1,2],[2,3],[3,0],
+[4,5],[5,6],[6,7],[7,4],
+[0,4],[1,5],[2,6],[3,7]
+];
+
+function rotateX(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x,
+        y:p.y*c - p.z*s,
+        z:p.y*s + p.z*c
+    };
+}
+
+function rotateY(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c + p.z*s,
+        y:p.y,
+        z:-p.x*s + p.z*c
+    };
+}
+
+function rotateZ(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c - p.y*s,
+        y:p.x*s + p.y*c,
+        z:p.z
+    };
+}
+
+function project(p){
+
+    const z = p.z - camera.z;
+    const scale = camera.fov / z;
+
+    return {
+        x:p.x * scale + canvas.width/2,
+        y:-p.y * scale + canvas.height/2
+    };
+}
+
+function collideBox(a,b){
+
+    return (
+        a.x-a.s/2 < b.x+b.w/2 &&
+        a.x+a.s/2 > b.x-b.w/2 &&
+        a.y-a.s/2 < b.y+b.h/2 &&
+        a.y+a.s/2 > b.y-b.h/2 &&
+        a.z-a.s/2 < b.z+b.d/2 &&
+        a.z+a.s/2 > b.z-b.d/2
+    );
+}
+
+function applyControls(){
+
+    const force = 0.02;
+
+    if(keys["w"]){
+        cube.vz -= force;
+        cube.rvx += 0.005;
+    }
+
+    if(keys["s"]){
+        cube.vz += force;
+        cube.rvx -= 0.005;
+    }
+
+    if(keys["a"]){
+        cube.vx -= force;
+        cube.rvz -= 0.005;
+    }
+
+    if(keys["d"]){
+        cube.vx += force;
+        cube.rvz += 0.005;
+    }
+}
+
+function physics(){
+
+    applyControls();
+
+    cube.vy -= gravity;
+
+    cube.x += cube.vx;
+    cube.y += cube.vy;
+    cube.z += cube.vz;
+
+    cube.rx += cube.rvx;
+    cube.ry += cube.rvy;
+    cube.rz += cube.rvz;
+
+    cube.vx *= airResistance;
+    cube.vy *= airResistance;
+    cube.vz *= airResistance;
+
+    cube.rvx *= angularResistance;
+    cube.rvy *= angularResistance;
+    cube.rvz *= angularResistance;
+
+    if(cube.y - cube.size/2 < floorY){
+
+        cube.y = floorY + cube.size/2;
+
+        cube.vy *= -bounceLoss;
+
+        cube.vx *= 0.995;
+        cube.vz *= 0.995;
+
+        cube.rvx += cube.vz * 0.04;
+        cube.rvz += cube.vx * 0.04;
+
+        if(Math.abs(cube.vy) < 0.01){
+            cube.vy = 0;
+        }
+    }
+
+    for(let w of walls){
+
+        if(collideBox({
+            x:cube.x,
+            y:cube.y,
+            z:cube.z,
+            s:cube.size
+        },w)){
+
+            const dx = cube.x - w.x;
+            const dz = cube.z - w.z;
+
+            if(Math.abs(dx) > Math.abs(dz)){
+
+                if(dx > 0){
+                    cube.x = w.x + w.w/2 + cube.size/2;
+                }else{
+                    cube.x = w.x - w.w/2 - cube.size/2;
+                }
+
+                const oldVX = cube.vx;
+
+                cube.vx *= -bounceLoss;
+
+                cube.rvy += oldVX * 0.08;
+                cube.rvz += oldVX * 0.04;
+
+            }else{
+
+                if(dz > 0){
+                    cube.z = w.z + w.d/2 + cube.size/2;
+                }else{
+                    cube.z = w.z - w.d/2 - cube.size/2;
+                }
+
+                const oldVZ = cube.vz;
+
+                cube.vz *= -bounceLoss;
+
+                cube.rvx += oldVZ * 0.08;
+                cube.rvy += oldVZ * 0.04;
+            }
+        }
+    }
+}
+
+function drawWireCube(x,y,z,w,h,d,color){
+
+    const verts = [
+        [-w/2,-h/2,-d/2],
+        [ w/2,-h/2,-d/2],
+        [ w/2, h/2,-d/2],
+        [-w/2, h/2,-d/2],
+
+        [-w/2,-h/2, d/2],
+        [ w/2,-h/2, d/2],
+        [ w/2, h/2, d/2],
+        [-w/2, h/2, d/2]
+    ];
+
+    const pts = [];
+
+    for(let v of verts){
+
+        pts.push(project({
+            x:v[0]+x,
+            y:v[1]+y,
+            z:v[2]+z
+        }));
+    }
+
+    ctx.strokeStyle = color;
+
+    for(let e of edges){
+
+        const a = pts[e[0]];
+        const b = pts[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function render(){
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.strokeStyle = "#222";
+
+    for(let x=-20;x<=20;x+=2){
+
+        const a = project({x,y:floorY,z:-20});
+        const b = project({x,y:floorY,z:20});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let z=-20;z<=20;z+=2){
+
+        const a = project({x:-20,y:floorY,z});
+        const b = project({x:20,y:floorY,z});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let w of walls){
+
+        drawWireCube(
+            w.x,w.y,w.z,
+            w.w,w.h,w.d,
+            "#444"
+        );
+    }
+
+    const pts = [];
+
+    for(let v of vertices){
+
+        let p = {
+            x:v[0]*cube.size/2,
+            y:v[1]*cube.size/2,
+            z:v[2]*cube.size/2
+        };
+
+        p = rotateX(p,cube.rx);
+        p = rotateY(p,cube.ry);
+        p = rotateZ(p,cube.rz);
+
+        p.x += cube.x;
+        p.y += cube.y;
+        p.z += cube.z;
+
+        pts.push(project(p));
+    }
+
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+
+    for(let e of edges){
+
+        const a = pts[e[0]];
+        const b = pts[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function loop(){
+
+    physics();
+    render();
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>

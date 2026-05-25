@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fixed Cube Collisions</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:black;
+    touch-action:none;
+}
+
+canvas{
+    display:block;
+    touch-action:none;
+}
+
+#info{
+    position:absolute;
+    top:10px;
+    left:10px;
+    color:white;
+    font-family:Arial;
+    background:rgba(0,0,0,0.5);
+    padding:10px;
+    border-radius:10px;
+}
+</style>
+</head>
+<body>
+
+<div id="info">
+Improved collision solver<br>
+Stable wall pushing + proper separation
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize", resize);
+
+const camera = {
+    z:-12,
+    fov:700
+};
+
+const cube = {
+    x:0,
+    y:3,
+    z:0,
+
+    vx:0,
+    vy:0,
+    vz:0,
+
+    rx:0,
+    ry:0,
+    rz:0,
+
+    rvx:0,
+    rvy:0,
+    rvz:0,
+
+    size:2
+};
+
+const gravity = 0.03;
+const floorY = -4;
+
+const dragFriction = 0.995;
+const angularFriction = 0.995;
+const restitution = 0.85;
+
+let dragging = false;
+let lastTime = 0;
+
+const boxes = [
+
+    {x:-7,y:-2,z:0,w:1,h:4,d:14},
+    {x:7,y:-2,z:0,w:1,h:4,d:14},
+
+    {x:0,y:-2,z:-7,w:14,h:4,d:1},
+    {x:0,y:-2,z:7,w:14,h:4,d:1},
+
+    {x:0,y:-3,z:0,w:3,h:2,d:3},
+    {x:4,y:-3,z:2,w:2,h:2,d:2},
+    {x:-4,y:-3,z:-2,w:2,h:2,d:2}
+];
+
+const vertices = [
+[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
+];
+
+const edges = [
+[0,1],[1,2],[2,3],[3,0],
+[4,5],[5,6],[6,7],[7,4],
+[0,4],[1,5],[2,6],[3,7]
+];
+
+function rotateX(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x,
+        y:p.y*c-p.z*s,
+        z:p.y*s+p.z*c
+    };
+}
+
+function rotateY(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c+p.z*s,
+        y:p.y,
+        z:-p.x*s+p.z*c
+    };
+}
+
+function rotateZ(p,a){
+
+    const s = Math.sin(a);
+    const c = Math.cos(a);
+
+    return {
+        x:p.x*c-p.y*s,
+        y:p.x*s+p.y*c,
+        z:p.z
+    };
+}
+
+function project(p){
+
+    const z = p.z - camera.z;
+    const scale = camera.fov / z;
+
+    return {
+        x:p.x*scale + canvas.width/2,
+        y:-p.y*scale + canvas.height/2
+    };
+}
+
+function solveCollision(box){
+
+    const half = cube.size/2;
+
+    const dx = cube.x - box.x;
+    const dy = cube.y - box.y;
+    const dz = cube.z - box.z;
+
+    const overlapX =
+        (half + box.w/2) - Math.abs(dx);
+
+    const overlapY =
+        (half + box.h/2) - Math.abs(dy);
+
+    const overlapZ =
+        (half + box.d/2) - Math.abs(dz);
+
+    if(
+        overlapX > 0 &&
+        overlapY > 0 &&
+        overlapZ > 0
+    ){
+
+        if(overlapX < overlapY &&
+           overlapX < overlapZ){
+
+            if(dx > 0){
+                cube.x += overlapX;
+            }else{
+                cube.x -= overlapX;
+            }
+
+            cube.vx *= -restitution;
+
+            cube.rvy += cube.vx * 0.08;
+            cube.rvz += cube.vx * 0.04;
+        }
+
+        else if(overlapY < overlapZ){
+
+            if(dy > 0){
+                cube.y += overlapY;
+            }else{
+                cube.y -= overlapY;
+            }
+
+            cube.vy *= -restitution;
+
+            cube.rvx += cube.vz * 0.04;
+            cube.rvz += cube.vx * 0.04;
+        }
+
+        else{
+
+            if(dz > 0){
+                cube.z += overlapZ;
+            }else{
+                cube.z -= overlapZ;
+            }
+
+            cube.vz *= -restitution;
+
+            cube.rvx += cube.vz * 0.08;
+            cube.rvy += cube.vz * 0.04;
+        }
+    }
+}
+
+function physics(){
+
+    if(!dragging){
+
+        cube.vy -= gravity;
+
+        cube.x += cube.vx;
+        cube.y += cube.vy;
+        cube.z += cube.vz;
+
+        cube.rx += cube.rvx;
+        cube.ry += cube.rvy;
+        cube.rz += cube.rvz;
+
+        cube.vx *= dragFriction;
+        cube.vy *= dragFriction;
+        cube.vz *= dragFriction;
+
+        cube.rvx *= angularFriction;
+        cube.rvy *= angularFriction;
+        cube.rvz *= angularFriction;
+
+        if(cube.y - cube.size/2 < floorY){
+
+            cube.y = floorY + cube.size/2;
+
+            cube.vy *= -restitution;
+
+            cube.rvx += cube.vz * 0.05;
+            cube.rvz += cube.vx * 0.05;
+
+            if(Math.abs(cube.vy) < 0.01){
+                cube.vy = 0;
+            }
+        }
+
+        for(let b of boxes){
+            solveCollision(b);
+        }
+    }
+}
+
+function drawWireCube(x,y,z,w,h,d,color){
+
+    const verts = [
+        [-w/2,-h/2,-d/2],
+        [ w/2,-h/2,-d/2],
+        [ w/2, h/2,-d/2],
+        [-w/2, h/2,-d/2],
+
+        [-w/2,-h/2, d/2],
+        [ w/2,-h/2, d/2],
+        [ w/2, h/2, d/2],
+        [-w/2, h/2, d/2]
+    ];
+
+    const pts = [];
+
+    for(let v of verts){
+
+        pts.push(project({
+            x:v[0]+x,
+            y:v[1]+y,
+            z:v[2]+z
+        }));
+    }
+
+    ctx.strokeStyle = color;
+
+    for(let e of edges){
+
+        const a = pts[e[0]];
+        const b = pts[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function render(){
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.strokeStyle = "#222";
+
+    for(let x=-20;x<=20;x+=2){
+
+        const a = project({x,y:floorY,z:-20});
+        const b = project({x,y:floorY,z:20});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let z=-20;z<=20;z+=2){
+
+        const a = project({x:-20,y:floorY,z});
+        const b = project({x:20,y:floorY,z});
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+
+    for(let b of boxes){
+
+        drawWireCube(
+            b.x,b.y,b.z,
+            b.w,b.h,b.d,
+            "#444"
+        );
+    }
+
+    const pts = [];
+
+    for(let v of vertices){
+
+        let p = {
+            x:v[0]*cube.size/2,
+            y:v[1]*cube.size/2,
+            z:v[2]*cube.size/2
+        };
+
+        p = rotateX(p,cube.rx);
+        p = rotateY(p,cube.ry);
+        p = rotateZ(p,cube.rz);
+
+        p.x += cube.x;
+        p.y += cube.y;
+        p.z += cube.z;
+
+        pts.push(project(p));
+    }
+
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+
+    for(let e of edges){
+
+        const a = pts[e[0]];
+        const b = pts[e[1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+    }
+}
+
+function loop(){
+
+    physics();
+    render();
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+
+function drag(clientX, clientY){
+
+    const now = performance.now();
+
+    const mx = clientX - canvas.width/2;
+    const my = clientY - canvas.height/2;
+
+    const nx = mx / 100;
+    const ny = -my / 100;
+
+    const dt = Math.max((now-lastTime)/16,1);
+
+    cube.vx = (nx-cube.x)/dt;
+    cube.vy = (ny-cube.y)/dt;
+
+    cube.rvx = cube.vy * 0.1;
+    cube.rvz = cube.vx * 0.1;
+
+    cube.x = nx;
+    cube.y = ny;
+
+    lastTime = now;
+}
+
+canvas.addEventListener("mousedown",(e)=>{
+
+    dragging = true;
+    lastTime = performance.now();
+
+    drag(e.clientX,e.clientY);
+});
+
+addEventListener("mousemove",(e)=>{
+
+    if(dragging){
+        drag(e.clientX,e.clientY);
+    }
+});
+
+addEventListener("mouseup",()=>{
+
+    dragging = false;
+});
+
+canvas.addEventListener("touchstart",(e)=>{
+
+    dragging = true;
+    lastTime = performance.now();
+
+    const t = e.touches[0];
+
+    drag(t.clientX,t.clientY);
+
+    e.preventDefault();
+
+},{passive:false});
+
+canvas.addEventListener("touchmove",(e)=>{
+
+    if(!dragging) return;
+
+    const t = e.touches[0];
+
+    drag(t.clientX,t.clientY);
+
+    e.preventDefault();
+
+},{passive:false});
+
+canvas.addEventListener("touchend",()=>{
+
+    dragging = false;
+});
+</script>
+
+</body>
+</html>
